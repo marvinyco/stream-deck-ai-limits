@@ -1,5 +1,5 @@
-import { TileSize } from "../interfaces/settings";
-import { ServiceTheme, ThemeColors } from "../interfaces/theme";
+import type { TileSize } from "../interfaces/settings";
+import type { ServiceTheme, ThemeColors } from "../interfaces/theme";
 
 export interface Slot {
     kind: "gauge" | "stat";
@@ -19,6 +19,21 @@ export interface RenderOptions {
     serviceName?: string;
     /** Scale preset; every size, gap and offset of the tile derives from it. */
     size?: TileSize;
+}
+
+/** One bar of a profiles tile: a usage percentage and its reset countdown. */
+export interface ProfileBar {
+    percent?: number;
+    caption?: string;
+    /** The account reported no such window; drawn as an empty track. */
+    empty?: boolean;
+}
+
+/** One account on a profiles tile: its header and either two bars or an error. */
+export interface ProfileGroup {
+    label: string;
+    bars?: ProfileBar[];
+    error?: string;
 }
 
 /**
@@ -80,6 +95,54 @@ const snap = (v: number): number => Math.round(v * 2) / 2;
 
 const STATE_DANGER = "#F2564F";
 const STATE_WARN = "#E5A12E";
+
+/**
+ * Fixed geometry of the profiles tile. Four bars already fill a key, so it has no
+ * size presets. There are no profile headers: position tells the accounts apart,
+ * profile 1 on top (or on the left of the dial), and the wider gap between groups
+ * keeps the pairs readable. The dial text stays smaller so a column still fits
+ * both the percentage and the reset time.
+ */
+const PROFILES = {
+    key: { pad: 8, bar: 26, barR: 7, barGap: 5, groupGap: 14, text: 16, textPad: 8 },
+    dial: { pad: 8, bar: 22, barR: 6, barGap: 5, groupGap: 10, text: 12, textPad: 6 }
+};
+
+type ProfilesGeometry = typeof PROFILES.key;
+
+/** Dark text for light fills, matching the text the amber warning already uses. */
+const ON_LIGHT = "#1A1505";
+const ON_DARK = "#FFFFFF";
+
+/**
+ * The profiles tile's fill: hue runs from green (120°) at 0% through yellow at 50%
+ * to red (0°) at 100%. Saturation and lightness stay fixed so every step sits on the
+ * dark background with the same weight.
+ */
+export function usageColor(percent: number): string {
+    const pct = Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : 0;
+    const h = 120 * (1 - pct / 100);
+    const s = 0.7;
+    const l = 0.5;
+    const a = s * Math.min(l, 1 - l);
+    const channel = (n: number) => {
+        const k = (n + h / 30) % 12;
+        const v = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+        return Math.round(v * 255).toString(16).padStart(2, "0").toUpperCase();
+    };
+    return `#${channel(0)}${channel(8)}${channel(4)}`;
+}
+
+/** Whichever of the dark or white text has the higher contrast on a fill. */
+export function textOnFill(hex: string): string {
+    const linear = (i: number) => {
+        const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    };
+    const luminance = 0.2126 * linear(1) + 0.7152 * linear(3) + 0.0722 * linear(5);
+    // Contrast against white is 1.05 / (L + 0.05), against the dark text (L ≈ 0.008) it is (L + 0.05) / 0.058.
+    return (luminance + 0.05) / 0.058 > 1.05 / (luminance + 0.05) ? ON_LIGHT : ON_DARK;
+}
 
 export class ProgressBarRenderer {
     private themes: Record<ServiceTheme, ThemeColors> = {
@@ -273,6 +336,34 @@ export class ProgressBarRenderer {
             }
         }
 
+        return this.svg(width, height, body);
+    }
+
+    /**
+     * Two accounts on one tile, each a header over a session and a weekly bar.
+     * The percentage and reset time sit inside each bar, so four bars fit a key.
+     */
+    renderProfiles(groups: ProfileGroup[], theme: ServiceTheme = 'claude', width: number = 144, height: number = 144): string {
+        const colors = this.themes[theme];
+        const isDial = this.isDial(width, height);
+        const g = isDial ? PROFILES.dial : PROFILES.key;
+        const shown = groups.slice(0, 2);
+        const groupH = 2 * g.bar + g.barGap;
+
+        let body = this.background(width, height, colors);
+        if (isDial) {
+            const colW = (width - 2 * g.pad - g.groupGap) / 2;
+            const top = (height - groupH) / 2;
+            shown.forEach((group, i) => {
+                body += this.profileGroup(group, i, colors, theme, g, g.pad + i * (colW + g.groupGap), top, colW);
+            });
+        } else {
+            const blockH = shown.length * groupH + Math.max(0, shown.length - 1) * g.groupGap;
+            const top = (height - blockH) / 2;
+            shown.forEach((group, i) => {
+                body += this.profileGroup(group, i, colors, theme, g, g.pad, top + i * (groupH + g.groupGap), width - 2 * g.pad);
+            });
+        }
         return this.svg(width, height, body);
     }
 
@@ -487,6 +578,61 @@ export class ProgressBarRenderer {
         out += this.txt(cx, top + geo.statLabelRow, label, geo.statLabelSize, 600, colors.label, "middle", ProgressBarRenderer.SANS);
         const font = this.fitFontSize(value, geo.statValueSize, geo.statValueMin, ProgressBarRenderer.SANS, geo.innerW);
         out += this.txt(cx, top + geo.statValueRow, this.escape(value), font, 700, colors.primary, "middle", ProgressBarRenderer.SANS);
+        return out;
+    }
+
+    private profileGroup(group: ProfileGroup, index: number, colors: ThemeColors, theme: ServiceTheme, g: ProfilesGeometry, left: number, top: number, w: number): string {
+        const SANS = ProgressBarRenderer.SANS;
+        // Without headers, an error is the one place the label is needed to say which
+        // account failed. It takes the first bar row and the message the second.
+        if (group.error) {
+            const row = (i: number) => top + i * (g.bar + g.barGap) + g.bar / 2 + g.text * 0.35;
+            return this.txt(left, row(0), this.fitText(group.label.toUpperCase(), g.text, SANS, w, 700), g.text, 700, colors.label, "start", SANS)
+                + this.txt(left, row(1), this.fitText(group.error, g.text, SANS, w, 600), g.text, 600, colors.text, "start", SANS);
+        }
+
+        let out = "";
+        for (let i = 0; i < 2; i++) {
+            const bar = group.bars?.[i] ?? { empty: true };
+            out += this.profileBar(bar, `pf${index}_${i}`, colors, theme, g, left, top + i * (g.bar + g.barGap), w);
+        }
+        return out;
+    }
+
+    private profileBar(bar: ProfileBar, clipId: string, colors: ThemeColors, theme: ServiceTheme, g: ProfilesGeometry, left: number, top: number, w: number): string {
+        const SANS = ProgressBarRenderer.SANS;
+        const x = this.round(left);
+        const y = this.round(top);
+        const width = this.round(w);
+        const textY = top + g.bar / 2 + g.text * 0.35;
+        let out = `<rect x="${x}" y="${y}" width="${width}" height="${g.bar}" rx="${g.barR}" fill="${colors.barBg}" />`;
+
+        if (bar.empty) {
+            return out + this.txt(left + g.textPad, textY, "—", g.text, 600, colors.label, "start", SANS);
+        }
+
+        const pct = this.clampPct(bar.percent ?? 0);
+        const color = usageColor(pct);
+        const fw = pct > 0 ? this.round(Math.max(g.bar, (w * pct) / 100)) : 0;
+        const onFill = textOnFill(color);
+        const pctText = `${pct}%`;
+        const captionMax = w - 2 * g.textPad - this.measure(pctText, g.text, SANS, 600) - 6;
+        const caption = bar.caption ? this.fitText(bar.caption, g.text, SANS, captionMax, 500) : "";
+
+        // Drawn once over the track and once clipped to the fill, so the text keeps its
+        // contrast wherever the fill ends.
+        const texts = (pctFill: string, captionFill: string) =>
+            this.txt(left + g.textPad, textY, pctText, g.text, 600, pctFill, "start", SANS)
+            + (caption ? this.txt(left + w - g.textPad, textY, caption, g.text, 500, captionFill, "end", SANS) : "");
+
+        if (fw > 0) {
+            out += `<rect x="${x}" y="${y}" width="${fw}" height="${g.bar}" rx="${g.barR}" fill="${color}" />`;
+        }
+        out += texts(colors.text, colors.label);
+        if (fw > 0) {
+            out += `<defs><clipPath id="${clipId}"><rect x="${x}" y="${y}" width="${fw}" height="${g.bar}" rx="${g.barR}" /></clipPath></defs>`;
+            out += `<g clip-path="url(#${clipId})">${texts(onFill, onFill)}</g>`;
+        }
         return out;
     }
 

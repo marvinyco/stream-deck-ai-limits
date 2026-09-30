@@ -34,6 +34,19 @@ export interface ClaudeSettings extends ProgressBarSettings {
     availableScopes?: ClaudeScope[];
 }
 
+/** One account on a Claude (Profiles) tile. */
+export interface ClaudeProfile {
+    label?: string;
+    /** Absolute path to a Claude Code `.credentials.json`; empty means the default login. */
+    credentialsPath?: string;
+}
+
+export interface ClaudeProfilesSettings {
+    /** Always two: the tile shows exactly two accounts. */
+    profiles?: [ClaudeProfile?, ClaudeProfile?];
+    [key: string]: any;
+}
+
 export type CodexMetric = "session" | "weekly" | "resetCredits" | "credits" | "none";
 
 /** Pre-0.2 setting: the bottom slot of the (then only) bar layout. Migrated on read. */
