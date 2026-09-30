@@ -30,6 +30,32 @@
       ]
     },
     {
+      "Name": "Claude (Profiles)",
+      "UUID": "com.len.limits.claude.profiles",
+      "Icon": "imgs/actions/counter/icon",
+      "Tooltip": "Displays Claude session and weekly usage for two accounts, e.g. work and personal.",
+      "PropertyInspectorPath": "ui/claude-profiles-settings.html",
+      "Controllers": [
+        "Keypad",
+        "Encoder"
+      ],
+      "Encoder": {
+        "layout": "layouts/full-view.json",
+        "StackColor": "#D97757",
+        "TriggerDescription": {
+          "Rotate": "Refresh",
+          "Touch": "Refresh",
+          "Push": "Refresh"
+        }
+      },
+      "States": [
+        {
+          "Image": "imgs/actions/counter/key",
+          "TitleAlignment": "middle"
+        }
+      ]
+    },
+    {
       "Name": "Codex (Native)",
       "UUID": "com.len.limits.codex.progress",
       "Icon": "imgs/actions/counter/icon",

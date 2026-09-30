@@ -78,6 +78,7 @@ Each provider is a separate action. All of them work on **Keypad** (keys) and **
 | Action | What it shows | UUID |
 |---|---|---|
 | **Claude (Native)** | Claude Code session, weekly, Sonnet weekly, or a model-scoped weekly limit | `com.len.limits.progress` |
+| **Claude (Profiles)** | Claude session and weekly usage for two accounts (e.g. work and personal) on one key | `com.len.limits.claude.profiles` |
 | **Codex (Native)** | Codex session or weekly usage, usage limit resets, credits balance | `com.len.limits.codex.progress` |
 | **Antigravity (Native)** | Antigravity (Claude + Gemini) usage, per model | `com.len.limits.antigravity` |
 | **Gemini CLI (Native)** | Gemini CLI quota usage, per model | `com.len.limits.gemini-cli` |
@@ -107,6 +108,7 @@ For most providers the plugin simply reads the credentials your CLI already wrot
 | Provider | How it authenticates | Where credentials come from |
 |---|---|---|
 | **Claude** | Automatic | macOS: Keychain (`Claude Code-credentials`), falling back to `~/.claude/.credentials.json`. Windows: `%USERPROFILE%\.claude\.credentials.json` |
+| **Claude (Profiles)** | Automatic, per profile | Each profile reads the `.credentials.json` path set in the Property Inspector (for example a second `CLAUDE_CONFIG_DIR`); an empty path uses the default Claude login |
 | **Codex / ChatGPT** | Automatic | `~/.codex/auth.json` |
 | **Gemini CLI** | Automatic | `~/.gemini/oauth_creds.json` |
 | **Antigravity** | One-time login | Click **Login** in the Property Inspector to start the Google OAuth2 flow; the token is saved to `~/.limits-streamdeck/antigravity_oauth.json` |
