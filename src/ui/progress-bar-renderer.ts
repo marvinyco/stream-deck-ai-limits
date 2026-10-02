@@ -110,8 +110,9 @@ const PROFILES = {
 
 type ProfilesGeometry = typeof PROFILES.key;
 
-/** Every piece of text on the profiles tile is white, over the track and the fill alike. */
+/** Profile text is white over the dark track; over a light fill it turns dark. */
 const PROFILES_TEXT = "#FFFFFF";
+const ON_LIGHT = "#1A1505";
 
 /**
  * The profiles tile's fill: hue runs from green (120°) at 0% through yellow at 50%
@@ -130,6 +131,17 @@ export function usageColor(percent: number): string {
         return Math.round(v * 255).toString(16).padStart(2, "0").toUpperCase();
     };
     return `#${channel(0)}${channel(8)}${channel(4)}`;
+}
+
+/** Whichever of the dark or white text has the higher contrast on a fill. */
+export function textOnFill(hex: string): string {
+    const linear = (i: number) => {
+        const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    };
+    const luminance = 0.2126 * linear(1) + 0.7152 * linear(3) + 0.0722 * linear(5);
+    // Contrast against white is 1.05 / (L + 0.05), against the dark text (L ≈ 0.008) it is (L + 0.05) / 0.058.
+    return (luminance + 0.05) / 0.058 > 1.05 / (luminance + 0.05) ? ON_LIGHT : PROFILES_TEXT;
 }
 
 export class ProgressBarRenderer {
@@ -515,7 +527,7 @@ export class ProgressBarRenderer {
     private gaugeModule(slot: Slot, colors: ThemeColors, theme: ServiceTheme, geo: any, top: number, isDial: boolean): string {
         const pct = this.clampPct(slot.percent ?? 0);
         const color = this.barColor(pct, theme);
-        const time = slot.caption ? this.escape(slot.caption) : "";
+        const time = slot.caption ?? "";
         const raw = slot.valueText ?? `${pct}%`;
 
         const weight = 500;
@@ -545,12 +557,7 @@ export class ProgressBarRenderer {
         out += `<rect x="${geo.left}" y="${barTop}" width="${this.round(geo.innerW)}" height="${geo.barH}" rx="${r}" fill="${colors.barBg}" />`;
         out += this.trackFill(geo.left, barTop, fw, geo.barH, this.round(geo.innerW), r, color);
         if (time) {
-            out += this.txt(cx, timeY, time, geo.timeSize, 500, colors.label, "middle", ProgressBarRenderer.SANS);
-            if (fw > 0) {
-                const clipId = `bar${this.round(barTop)}_${this.round(geo.left)}`;
-                out += `<defs><clipPath id="${clipId}"><rect x="${geo.left}" y="${barTop}" width="${fw}" height="${geo.barH}" /></clipPath></defs>`;
-                out += `<g clip-path="url(#${clipId})">${this.txt(cx, timeY, time, geo.timeSize, 500, onFill, "middle", ProgressBarRenderer.SANS)}</g>`;
-            }
+            out += this.splitText(cx, timeY, time, geo.timeSize, 500, "middle", geo.left + fw, colors.label, onFill);
         }
         return out;
     }
@@ -602,12 +609,16 @@ export class ProgressBarRenderer {
         const fw = this.round((w * pct) / 100);
         const pctText = `${pct}%`;
         const captionMax = w - 2 * g.textPad - this.measure(pctText, g.text, SANS, 600) - 6;
-        const caption = bar.caption ? this.fitText(bar.caption, g.text, SANS, captionMax, 500) : "";
+        // A wide caption such as "WED 12PM" shrinks a little before it is truncated.
+        const captionSize = bar.caption ? this.fitFontSize(bar.caption, g.text, g.text * 0.75, SANS, captionMax) : g.text;
+        const caption = bar.caption ? this.truncate(bar.caption, captionSize, SANS, captionMax, 500) : "";
+        const onFill = textOnFill(color);
+        const edge = left + fw;
 
         out += this.trackFill(x, y, fw, g.bar, width, g.barR, color);
-        out += this.txt(left + g.textPad, textY, pctText, g.text, 600, PROFILES_TEXT, "start", SANS);
+        out += this.splitText(left + g.textPad, textY, pctText, g.text, 600, "start", edge, PROFILES_TEXT, onFill);
         if (caption) {
-            out += this.txt(left + w - g.textPad, textY, caption, g.text, 500, PROFILES_TEXT, "end", SANS);
+            out += this.splitText(left + w - g.textPad, textY, caption, captionSize, 500, "end", edge, PROFILES_TEXT, onFill);
         }
         return out;
     }
@@ -740,9 +751,14 @@ export class ProgressBarRenderer {
     }
 
     private fitText(text: string, size: number, family: string, maxWidth: number, weight = 600, tracking = 0): string {
+        return this.escape(this.truncate(text, size, family, maxWidth, weight, tracking));
+    }
+
+    /** Like fitText, but unescaped, for text that is escaped piece by piece later. */
+    private truncate(text: string, size: number, family: string, maxWidth: number, weight = 600, tracking = 0): string {
         const w = (s: string) => this.measure(s, size, family, weight) + Math.max(0, s.length - 1) * tracking;
         const clean = text.trim();
-        if (w(clean) <= maxWidth) return this.escape(clean);
+        if (w(clean) <= maxWidth) return clean;
         const ell = "…";
         let lo = 0, hi = clean.length;
         while (lo < hi) {
@@ -750,7 +766,7 @@ export class ProgressBarRenderer {
             if (w(clean.slice(0, mid) + ell) <= maxWidth) lo = mid;
             else hi = mid - 1;
         }
-        return this.escape(clean.slice(0, lo).trimEnd() + ell);
+        return clean.slice(0, lo).trimEnd() + ell;
     }
 
     private fitFontSize(text: string, max: number, min: number, family: string, maxWidth: number, tracking = 0): number {
@@ -783,15 +799,63 @@ export class ProgressBarRenderer {
     }
 
     /**
-     * A fill exactly proportional to its width, however narrow. A rounded rect can't
-     * be narrower than its corners, so the fill is a plain rect clipped to the track's
-     * rounded shape instead: short fills keep the track's curve on the left.
+     * A fill exactly proportional to its width, however narrow: the track's rounded
+     * shape cut off at the fill's width. It is drawn as a path because the Stream Deck
+     * SVG renderer ignores clipPath, and a rounded rect can't be narrower than its corners.
      */
     private trackFill(x: number, y: number, fw: number, h: number, trackW: number, r: number, color: string): string {
         if (fw <= 0) return "";
-        const clipId = `track${x}_${y}`.replace(/\./g, "-");
-        return `<defs><clipPath id="${clipId}"><rect x="${x}" y="${y}" width="${trackW}" height="${h}" rx="${r}" /></clipPath></defs>`
-            + `<rect x="${x}" y="${y}" width="${fw}" height="${h}" fill="${color}" clip-path="url(#${clipId})" />`;
+        const c = Math.min(fw, trackW);
+        const R = Math.min(r, h / 2, trackW / 2);
+        const n = (v: number) => this.round(v);
+        // How far a corner arc sits in from the top and bottom edges at a given inset.
+        const arcInset = (inset: number) => R - Math.sqrt(Math.max(0, R * R - inset * inset));
+        let d: string;
+        if (R <= 0) {
+            d = `M${n(x)} ${n(y)}H${n(x + c)}V${n(y + h)}H${n(x)}Z`;
+        } else if (c <= R) {
+            // Only part of the left corners: a sliver following their curve.
+            const dy = arcInset(R - c);
+            d = `M${n(x + c)} ${n(y + dy)}V${n(y + h - dy)}`
+                + `A${R} ${R} 0 0 1 ${n(x)} ${n(y + h - R)}V${n(y + R)}`
+                + `A${R} ${R} 0 0 1 ${n(x + c)} ${n(y + dy)}Z`;
+        } else {
+            // Rounded left end; the right end is straight until it reaches the track's own corners.
+            const dy = c > trackW - R ? arcInset(c - (trackW - R)) : 0;
+            const right = dy > 0
+                ? `H${n(x + trackW - R)}A${R} ${R} 0 0 1 ${n(x + c)} ${n(y + dy)}V${n(y + h - dy)}A${R} ${R} 0 0 1 ${n(x + trackW - R)} ${n(y + h)}`
+                : `H${n(x + c)}V${n(y + h)}`;
+            d = `M${n(x + R)} ${n(y)}${right}H${n(x + R)}`
+                + `A${R} ${R} 0 0 1 ${n(x)} ${n(y + h - R)}V${n(y + R)}`
+                + `A${R} ${R} 0 0 1 ${n(x + R)} ${n(y)}Z`;
+        }
+        return `<path d="${d}" fill="${color}" />`;
+    }
+
+    /**
+     * Text that changes colour where the fill ends: each character takes the fill's
+     * text colour when its centre sits over the fill, the base colour otherwise. The
+     * Stream Deck renderer ignores clipPath, so this is done with tspans instead.
+     */
+    private splitText(x: number, y: number, text: string, size: number, weight: number, anchor: "start" | "middle" | "end", edgeX: number, base: string, onFill: string): string {
+        const SANS = ProgressBarRenderer.SANS;
+        const total = this.measure(text, size, SANS, weight);
+        const startX = anchor === "start" ? x : anchor === "end" ? x - total : x - total / 2;
+        const runs: { fill: string; text: string }[] = [];
+        let offset = 0;
+        for (const ch of text) {
+            const cw = this.measure(ch, size, SANS, weight);
+            const fill = startX + offset + cw / 2 < edgeX ? onFill : base;
+            offset += cw;
+            const last = runs[runs.length - 1];
+            if (last && last.fill === fill) last.text += ch;
+            else runs.push({ fill, text: ch });
+        }
+        if (runs.length <= 1) {
+            return this.txt(x, y, this.escape(text), size, weight, runs[0]?.fill ?? base, anchor, SANS);
+        }
+        const content = runs.map((run) => `<tspan fill="${run.fill}">${this.escape(run.text)}</tspan>`).join("");
+        return this.txt(x, y, content, size, weight, base, anchor, SANS);
     }
 
     private round(n: number): number {

@@ -1,15 +1,30 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ProgressBarRenderer, usageColor } from "../src/ui/progress-bar-renderer.ts";
+import { ProgressBarRenderer, textOnFill, usageColor } from "../src/ui/progress-bar-renderer.ts";
 
 const renderer = new ProgressBarRenderer();
+
+/** The SVG with per-character colour runs merged back, so text reads as one string. */
+const plainProfiles = (...args: Parameters<ProgressBarRenderer["renderProfiles"]>) =>
+    renderer.renderProfiles(...args).replace(/<\/?tspan[^>]*>/g, "");
+
+/** The right-most x a fill path reaches, from its absolute M/H/V/A commands. */
+function pathRight(d: string): number {
+    let right = -Infinity;
+    for (const [, cmd, args] of d.matchAll(/([MHVA])([^MHVAZ]*)/g)) {
+        const nums = args.trim().split(/[\s,]+/).map(Number);
+        const x = cmd === "H" ? nums[0] : cmd === "M" ? nums[0] : cmd === "A" ? nums[5] : -Infinity;
+        right = Math.max(right, x);
+    }
+    return right;
+}
 const mockup = [
     { label: "Work", bars: [{ percent: 16, caption: "3h 33m" }, { percent: 92, caption: "16h 3m" }] },
     { label: "Personal", bars: [{ percent: 48, caption: "1h 12m" }, { percent: 31, caption: "4d 2h" }] }
 ];
 
 test("draws percentages and reset times without profile headers", () => {
-    const svg = renderer.renderProfiles(mockup, "claude", 144, 144);
+    const svg = plainProfiles(mockup, "claude", 144, 144);
     assert.match(svg, /^<svg [^>]*width="144" height="144"/);
     for (const text of ["16%", "92%", "48%", "31%", "3h 33m", "16h 3m", "1h 12m", "4d 2h"]) {
         assert.ok(svg.includes(`>${text}</text>`), `missing ${text}`);
@@ -20,13 +35,13 @@ test("draws percentages and reset times without profile headers", () => {
 });
 
 test("uses 26px bars with 16px text on a key", () => {
-    const svg = renderer.renderProfiles(mockup, "claude", 144, 144);
+    const svg = plainProfiles(mockup, "claude", 144, 144);
     assert.ok(svg.includes('height="26"'));
     assert.ok(svg.includes('font-size="16"'));
 });
 
 test("puts profile 1 on top", () => {
-    const svg = renderer.renderProfiles(mockup, "claude", 144, 144);
+    const svg = plainProfiles(mockup, "claude", 144, 144);
     const y = (text: string) => Number(svg.match(new RegExp(`<text x="[^"]+" y="([^"]+)"[^>]*>${text}</text>`))?.[1]);
     assert.ok(y("16%") < y("92%"));
     assert.ok(y("92%") < y("48%"));
@@ -60,14 +75,45 @@ test("usageColor clamps out-of-range values", () => {
     assert.match(usageColor(37), /^#[0-9A-F]{6}$/);
 });
 
-test("every piece of profile text is white", () => {
-    const fills = (svg: string) => [...svg.matchAll(/<text [^>]*fill="([^"]+)"/g)].map((m) => m[1]);
-    const bars = renderer.renderProfiles(mockup, "claude", 144, 144);
-    const errors = renderer.renderProfiles([
-        { label: "Work", error: "Login Expired" },
-        { label: "Personal", bars: [{ empty: true }, { percent: 50 }] }
+test("textOnFill is dark on green and yellow and white on deep red", () => {
+    assert.equal(textOnFill(usageColor(10)), "#1A1505");
+    assert.equal(textOnFill(usageColor(50)), "#1A1505");
+    assert.equal(textOnFill(usageColor(100)), "#FFFFFF");
+});
+
+test("text is white over the track and contrasts with the fill where it overlaps", () => {
+    const svg = renderer.renderProfiles([{ label: "A", bars: [{ percent: 50, caption: "3d 4h" }] }], "claude", 144, 144);
+    // Over the fill: the percentage on the left. Over the track: the caption on the right.
+    assert.ok(svg.includes(`fill="${textOnFill(usageColor(50))}" text-anchor="start">50%</text>`), svg);
+    assert.ok(svg.includes(`fill="#FFFFFF" text-anchor="end">3d 4h</text>`), svg);
+});
+
+test("text the fill edge runs through changes colour per character", () => {
+    const svg = renderer.renderProfiles([{ label: "A", bars: [{ percent: 20 }] }], "claude", 144, 144);
+    const dark = textOnFill(usageColor(20));
+    assert.match(svg, new RegExp(`<tspan fill="${dark}">[^<]+</tspan><tspan fill="#FFFFFF">[^<]+</tspan>`));
+});
+
+test("draws without clipPath, which the Stream Deck renderer ignores", () => {
+    const profiles = renderer.renderProfiles([
+        { label: "A", bars: [{ percent: 3, caption: "MON 2PM" }, { percent: 60, caption: "4h" }] },
+        { label: "B", bars: [{ percent: 97, caption: "now" }, { percent: 100 }] }
     ], "claude", 144, 144);
-    for (const fill of [...fills(bars), ...fills(errors)]) assert.equal(fill, "#FFFFFF");
+    const slots = renderer.renderSlots([
+        { kind: "gauge", label: "Session", percent: 40, caption: "2h" },
+        { kind: "gauge", label: "Week", percent: 80, caption: "MON 2PM" }
+    ], "claude", 144, 144);
+    for (const svg of [profiles, slots]) {
+        assert.ok(!svg.includes("clip"), "uses clipping");
+    }
+});
+
+test("labels, errors and empty bars stay white", () => {
+    const svg = renderer.renderProfiles([
+        { label: "Work", error: "Login Expired" },
+        { label: "Personal", bars: [{ empty: true }, { empty: true }] }
+    ], "claude", 144, 144);
+    for (const [, fill] of svg.matchAll(/<text [^>]*fill="([^"]+)"/g)) assert.equal(fill, "#FFFFFF");
 });
 
 test("profile bars fill with the usage colour", () => {
@@ -114,7 +160,7 @@ test("an errored profile shows its message instead of bars", () => {
 });
 
 test("an empty bar shows a dash and no fill", () => {
-    const svg = renderer.renderProfiles([
+    const svg = plainProfiles([
         { label: "Work", bars: [{ empty: true }, { empty: true }] },
         { label: "Personal", bars: [{ empty: true }, { percent: 10 }] }
     ], "claude", 144, 144);
@@ -123,7 +169,7 @@ test("an empty bar shows a dash and no fill", () => {
 });
 
 test("draws the dial as two columns", () => {
-    const svg = renderer.renderProfiles(mockup, "claude", 200, 100);
+    const svg = plainProfiles(mockup, "claude", 200, 100);
     assert.match(svg, /^<svg [^>]*width="200" height="100"/);
     const x = (text: string) => Number(svg.match(new RegExp(`<text x="([^"]+)"[^>]*>${text}</text>`))?.[1]);
     assert.ok(x("16%") < 100, "profile 1 sits in the left-hand column");
@@ -135,14 +181,13 @@ test("draws the dial as two columns", () => {
 });
 
 test("fill width is exactly proportional to the percentage", () => {
-    const fillWidth = (pct: number) => {
+    const left = 8;
+    const track = 144 - 2 * left;
+    for (const pct of [1, 2, 5, 16, 50, 98, 100]) {
         const svg = renderer.renderProfiles([{ label: "A", bars: [{ percent: pct }] }], "claude", 144, 144);
-        const fill = svg.match(new RegExp(`<rect [^>]*width="([^"]+)"[^>]*fill="${usageColor(pct)}"`));
+        const fill = svg.match(new RegExp(`<path d="([^"]+)" fill="${usageColor(pct)}"`));
         assert.ok(fill, `missing fill for ${pct}%`);
-        return Number(fill[1]);
-    };
-    const track = 144 - 2 * 8;
-    for (const pct of [2, 5, 16, 50, 100]) {
-        assert.ok(Math.abs(fillWidth(pct) - (track * pct) / 100) < 0.01, `${pct}% fill is ${fillWidth(pct)}`);
+        const width = pathRight(fill[1]) - left;
+        assert.ok(Math.abs(width - (track * pct) / 100) < 0.02, `${pct}% fill is ${width}`);
     }
 });
