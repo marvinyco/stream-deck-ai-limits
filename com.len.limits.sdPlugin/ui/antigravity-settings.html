@@ -5,6 +5,7 @@
     <title>Antigravity Settings</title>
     <meta charset="utf-8" />
     <script src="https://sdpi-components.dev/releases/v4/sdpi-components.js"></script>
+    <script src="refresh-interval.js"></script>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -128,6 +129,9 @@
         <label class="checkbox"><input id="showProviderName" type="checkbox" /> Show provider name</label>
     </sdpi-item>
 
+    <div id="refreshInterval"></div>
+
+
     <div class="info"><span class="link" onclick="openGitHub()">View source on GitHub</span></div>
     <div class="info">After signing in, press the Stream Deck button once to load the latest quota and refresh the model list.</div>
 
@@ -154,6 +158,7 @@
 
             _websocket.onopen = function () {
                 _websocket.send(JSON.stringify({ event: registerEvent, uuid }));
+                RefreshInterval.attach(_websocket, uuid);
                 sendToPlugin({ event: "getStatus" });
                 sendToPlugin({ event: "getModels" });
             };

@@ -4,6 +4,7 @@ import { ProgressBarRenderer, Slot, RenderOptions } from "../ui/progress-bar-ren
 import { ServiceTheme } from "../interfaces/theme";
 import { TileLayout } from "../interfaces/settings";
 import { LimitsManager } from "../services/limits-manager";
+import { RefreshInterval } from "../services/refresh-interval";
 
 /** A single placed tile: its own controller kind and its own settings. */
 interface TileInstance<T> {
@@ -29,9 +30,23 @@ export abstract class BaseMonitoringAction<
     protected intervalId: NodeJS.Timeout | null = null;
     protected isMonitoring = false;
     protected usage = new Map<string, CachedUsage<TResult>>();
-    protected readonly monitoringIntervalMs: number = 900000;
     protected readonly renderer = new ProgressBarRenderer();
     protected readonly limitsManager = LimitsManager.getInstance();
+    private readonly refreshInterval = RefreshInterval.getInstance();
+
+    constructor() {
+        super();
+        // A new interval takes effect at once instead of after the old timer fires.
+        this.refreshInterval.onChange(() => {
+            if (!this.isMonitoring) return;
+            this.stopMonitoring();
+            this.startMonitoring();
+        });
+    }
+
+    protected get monitoringIntervalMs(): number {
+        return this.refreshInterval.ms;
+    }
 
     /** Used for logging; external backends may use an id outside ProviderName. */
     protected abstract get providerName(): ProviderName | string;
