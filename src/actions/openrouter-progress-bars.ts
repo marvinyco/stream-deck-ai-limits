@@ -5,6 +5,7 @@ import { BaseMonitoringAction } from "./base-monitoring-action";
 import { ServiceTheme } from "../interfaces/theme";
 import { Slot } from "../ui/progress-bar-renderer";
 import { streamDeckLogger } from "../services/limits-manager";
+import { formatTimeUntil } from "../utils/time-formatter";
 
 const METRIC_LABELS: Record<OpenRouterMetric, string> = {
     limit: "Limit",
@@ -76,7 +77,7 @@ export class OpenRouterProgressBars extends BaseMonitoringAction<OpenRouterSetti
                     label,
                     percent: d.limit.usagePercent,
                     valueText: `${d.limit.usagePercent}%`,
-                    caption: d.limit.resetTime ? formatResetTime(d.limit.resetTime) : undefined
+                    caption: d.limit.resetTime ? formatTimeUntil(d.limit.resetTime) : undefined
                 };
             }
             return { kind: "stat", label: "Limit", valueText: "∞", caption: "no limit" };
@@ -92,17 +93,6 @@ export class OpenRouterProgressBars extends BaseMonitoringAction<OpenRouterSetti
             caption: metric === "total" ? "All Time" : "spent"
         };
     }
-}
-
-function formatResetTime(resetTime: string): string {
-    const diffMs = new Date(resetTime).getTime() - Date.now();
-    if (!Number.isFinite(diffMs) || diffMs <= 0) return "now";
-    const minutes = Math.floor(diffMs / 60000);
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
-    if (days > 0) return hours % 24 > 0 ? `${days}d ${hours % 24}h` : `${days}d`;
-    if (hours > 0) return minutes % 60 > 0 ? `${hours}h ${minutes % 60}m` : `${hours}h`;
-    return `${minutes}m`;
 }
 
 function formatSpend(value: number): string {

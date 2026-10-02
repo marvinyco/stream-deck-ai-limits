@@ -222,8 +222,8 @@ export class ProgressBarRenderer {
         session: number,
         week: number,
         theme: ServiceTheme = 'claude',
-        sessionResetTime?: string | number | null,
-        weekResetTime?: string | number | null,
+        sessionCaption?: string,
+        weekCaption?: string,
         sessionLabel: string = "Session",
         weekLabel: string = "Week",
         width: number = 144,
@@ -238,14 +238,14 @@ export class ProgressBarRenderer {
                 label: sessionLabel,
                 percent: session,
                 valueText: sessionValueText,
-                caption: sessionResetTime != null ? this.formatResetTime(sessionResetTime) : undefined
+                caption: sessionCaption || undefined
             },
             {
                 kind: "gauge",
                 label: weekLabel,
                 percent: week,
                 valueText: weekValueText,
-                caption: weekResetTime != null ? this.formatResetTime(weekResetTime) : undefined
+                caption: weekCaption || undefined
             }
         ];
         return this.renderSlots(slots, theme, width, height, opts);
@@ -802,23 +802,4 @@ export class ProgressBarRenderer {
         return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     }
 
-    private formatResetTime(resetTime: string | number): string {
-        const resetDate = typeof resetTime === 'number' ? new Date(resetTime * 1000) : new Date(resetTime);
-        const diffMs = resetDate.getTime() - Date.now();
-        if (diffMs <= 0) return "now";
-
-        const diffMinutes = Math.floor(diffMs / 60000);
-        const diffHours = Math.floor(diffMinutes / 60);
-        const diffDays = Math.floor(diffHours / 24);
-
-        if (diffDays > 0) {
-            const hours = diffHours % 24;
-            return hours > 0 ? `${diffDays}d ${hours}h` : `${diffDays}d`;
-        }
-        if (diffHours > 0) {
-            const minutes = diffMinutes % 60;
-            return minutes > 0 ? `${diffHours}h ${minutes}m` : `${diffHours}h`;
-        }
-        return `${diffMinutes}m`;
-    }
 }

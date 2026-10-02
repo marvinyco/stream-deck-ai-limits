@@ -1,6 +1,7 @@
-// Plugin-wide refresh interval slider, shared by every settings page.
-// Each page calls RefreshInterval.attach(websocket, uuid) once its socket is
-// registered; the value lives in global settings, so every action follows it.
+// Plugin-wide settings shared by every settings page: the refresh interval and
+// whether reset times show as a countdown or a clock time. Each page calls
+// PluginSettings.attach(websocket, uuid) once its socket is registered; the values
+// live in global settings, so every action follows them.
 (function () {
     const MIN = 1;
     const MAX = 60;
@@ -21,7 +22,7 @@
     }
 
     function render() {
-        const host = document.getElementById("refreshInterval");
+        const host = document.getElementById("pluginSettings");
         if (!host || host.childElementCount) return;
         host.innerHTML =
             '<sdpi-item label="Refresh every">' +
@@ -30,38 +31,53 @@
             '    <span id="refreshIntervalValue" class="refresh-value">' + describe(DEFAULT) + '</span>' +
             '  </div>' +
             '</sdpi-item>' +
-            '<div class="refresh-note">Refresh interval applies to all keys of this plugin.</div>';
+            '<sdpi-item label="Show">' +
+            '  <select id="resetDisplay" class="plugin-select" disabled>' +
+            '    <option value="remaining">Time remaining (2h 30m)</option>' +
+            '    <option value="reset">Reset time (14:30, MON 2PM)</option>' +
+            '  </select>' +
+            '</sdpi-item>' +
+            '<div class="refresh-note">These two settings apply to all keys of this plugin.</div>';
 
         const style = document.createElement("style");
         style.textContent =
             ".refresh-row { display: flex; align-items: center; gap: 8px; }" +
             ".refresh-row input { flex: 1; min-width: 0; }" +
             ".refresh-value { min-width: 44px; text-align: right; font-size: 12px; color: #ddd; }" +
+            ".plugin-select { width: 100%; padding: 4px 8px; border-radius: 4px; background: #2d2d2d; color: #ddd; border: 1px solid #444; font-size: 12px; }" +
             ".refresh-note { padding: 0 16px 8px; font-size: 11px; color: #999; line-height: 1.4; }";
         document.head.appendChild(style);
 
         const range = document.getElementById("refreshIntervalRange");
         range.addEventListener("input", function () {
-            show(clamp(range.value));
+            showInterval(clamp(range.value));
         });
         range.addEventListener("change", function () {
-            save(clamp(range.value));
+            save({ refreshIntervalMinutes: clamp(range.value) });
+        });
+        document.getElementById("resetDisplay").addEventListener("change", function (evt) {
+            save({ resetDisplay: evt.target.value === "reset" ? "reset" : "remaining" });
         });
     }
 
-    function show(minutes) {
+    function showInterval(minutes) {
         const range = document.getElementById("refreshIntervalRange");
         const label = document.getElementById("refreshIntervalValue");
         if (range) range.value = String(minutes);
         if (label) label.textContent = describe(minutes);
     }
 
+    function show(settings) {
+        showInterval(clamp(settings.refreshIntervalMinutes ?? DEFAULT));
+        const select = document.getElementById("resetDisplay");
+        if (select) select.value = settings.resetDisplay === "reset" ? "reset" : "remaining";
+    }
+
     // setGlobalSettings replaces the whole object, and the plugin writes other keys
     // there (e.g. the CodexBar server config), so re-read before every save and
     // merge into the fresh copy rather than writing back a stale one.
-    function save(minutes) {
-        pending = minutes;
-        show(minutes);
+    function save(changes) {
+        pending = Object.assign({}, pending, changes);
         if (socket && context) {
             socket.send(JSON.stringify({ event: "getGlobalSettings", context: context }));
         }
@@ -74,22 +90,24 @@
 
         socket.addEventListener("message", function (evt) {
             const data = JSON.parse(evt.data);
-            if (data.event === "didReceiveGlobalSettings") {
-                const settings = data.payload?.settings || {};
-                if (pending !== null) {
-                    socket.send(JSON.stringify({
-                        event: "setGlobalSettings",
-                        context: context,
-                        payload: Object.assign({}, settings, { refreshIntervalMinutes: pending })
-                    }));
-                    pending = null;
-                    return;
-                }
-                show(clamp(settings.refreshIntervalMinutes ?? DEFAULT));
-                // Enabled only now, so the slider never starts from the default value.
-                const range = document.getElementById("refreshIntervalRange");
-                if (range) range.disabled = false;
+            if (data.event !== "didReceiveGlobalSettings") return;
+
+            const settings = data.payload?.settings || {};
+            if (pending !== null) {
+                socket.send(JSON.stringify({
+                    event: "setGlobalSettings",
+                    context: context,
+                    payload: Object.assign({}, settings, pending)
+                }));
+                pending = null;
+                return;
             }
+            show(settings);
+            // Enabled only now, so the controls never start from the defaults.
+            ["refreshIntervalRange", "resetDisplay"].forEach(function (id) {
+                const control = document.getElementById(id);
+                if (control) control.disabled = false;
+            });
         });
 
         socket.send(JSON.stringify({ event: "getGlobalSettings", context: uuid }));
@@ -101,5 +119,5 @@
         render();
     }
 
-    window.RefreshInterval = { attach: attach };
+    window.PluginSettings = { attach: attach };
 })();

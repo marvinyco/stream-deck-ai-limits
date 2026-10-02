@@ -4,7 +4,8 @@ import { ProgressBarRenderer, Slot, RenderOptions } from "../ui/progress-bar-ren
 import { ServiceTheme } from "../interfaces/theme";
 import { TileLayout } from "../interfaces/settings";
 import { LimitsManager } from "../services/limits-manager";
-import { RefreshInterval } from "../services/refresh-interval";
+import { PluginSettings } from "../services/plugin-settings";
+import { formatTimeUntil } from "../utils/time-formatter";
 
 /** A single placed tile: its own controller kind and its own settings. */
 interface TileInstance<T> {
@@ -32,20 +33,28 @@ export abstract class BaseMonitoringAction<
     protected usage = new Map<string, CachedUsage<TResult>>();
     protected readonly renderer = new ProgressBarRenderer();
     protected readonly limitsManager = LimitsManager.getInstance();
-    private readonly refreshInterval = RefreshInterval.getInstance();
+    private readonly pluginSettings = PluginSettings.getInstance();
 
     constructor() {
         super();
         // A new interval takes effect at once instead of after the old timer fires.
-        this.refreshInterval.onChange(() => {
+        this.pluginSettings.onRefreshIntervalChange(() => {
             if (!this.isMonitoring) return;
             this.stopMonitoring();
             this.startMonitoring();
         });
+        // Reset captions are formatted at draw time, so cached data just needs a redraw.
+        this.pluginSettings.onResetDisplayChange(() => {
+            for (const instance of [...this.instances.values()]) {
+                this.redraw(this.asEvent(instance)).catch((err) => {
+                    streamDeck.logger.error(`[${this.providerName}] Redraw failed: ${err}`);
+                });
+            }
+        });
     }
 
     protected get monitoringIntervalMs(): number {
-        return this.refreshInterval.ms;
+        return this.pluginSettings.refreshIntervalMs;
     }
 
     /** Used for logging; external backends may use an id outside ProviderName. */
@@ -265,8 +274,8 @@ export abstract class BaseMonitoringAction<
                         data.value1 ?? 0,
                         data.value2 ?? 0,
                         theme,
-                        data.resetTime1,
-                        data.resetTime2,
+                        formatTimeUntil(data.resetTime1 ?? null),
+                        formatTimeUntil(data.resetTime2 ?? null),
                         data.label1 ?? "",
                         data.label2 ?? "",
                         w, h,

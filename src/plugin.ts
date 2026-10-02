@@ -7,7 +7,7 @@ import { GeminiCliProgressBars } from "./actions/gemini-cli-progress-bars";
 import { MiniMaxProgressBars } from "./actions/minimax-progress-bars";
 import { OpenRouterProgressBars } from "./actions/openrouter-progress-bars";
 import { CodexBarProgressBars } from "./actions/codexbar-progress-bars";
-import { RefreshInterval } from "./services/refresh-interval";
+import { PluginSettings } from "./services/plugin-settings";
 
 streamDeck.actions.registerAction(new ProgressBars());
 streamDeck.actions.registerAction(new ClaudeProfilesAction());
@@ -18,9 +18,9 @@ streamDeck.actions.registerAction(new MiniMaxProgressBars());
 streamDeck.actions.registerAction(new OpenRouterProgressBars());
 streamDeck.actions.registerAction(new CodexBarProgressBars());
 
-const refreshInterval = RefreshInterval.getInstance();
-refreshInterval.listen();
+const pluginSettings = PluginSettings.getInstance();
+pluginSettings.listen();
 
-streamDeck.connect().then(() => refreshInterval.load()).catch((err) => {
-    streamDeck.logger.error(`Failed to load refresh interval: ${err}`);
+streamDeck.connect().then(() => pluginSettings.load()).catch((err) => {
+    streamDeck.logger.error(`Failed to load plugin settings: ${err}`);
 });

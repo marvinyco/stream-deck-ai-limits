@@ -5,7 +5,7 @@
     <title>OpenRouter Settings</title>
     <meta charset="utf-8" />
     <script src="https://sdpi-components.dev/releases/v4/sdpi-components.js"></script>
-    <script src="refresh-interval.js"></script>
+    <script src="plugin-settings.js"></script>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -108,7 +108,7 @@
     <div class="hint"><span class="link" onclick="openGitHub()">View source on GitHub</span></div>
     <div class="hint">Create a key at openrouter.ai/keys. The key limit bar fills when the key has a spend limit; spend bars show the dollar amount.</div>
 
-    <div id="refreshInterval"></div>
+    <div id="pluginSettings"></div>
 
 
     <script>
@@ -128,7 +128,7 @@
 
             _websocket.onopen = function () {
                 _websocket.send(JSON.stringify({ event: registerEvent, uuid: uuid }));
-                RefreshInterval.attach(_websocket, uuid);
+                PluginSettings.attach(_websocket, uuid);
                 applySettings();
             };
 
