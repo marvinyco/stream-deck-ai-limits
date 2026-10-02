@@ -110,9 +110,8 @@ const PROFILES = {
 
 type ProfilesGeometry = typeof PROFILES.key;
 
-/** Dark text for light fills, matching the text the amber warning already uses. */
-const ON_LIGHT = "#1A1505";
-const ON_DARK = "#FFFFFF";
+/** Every piece of text on the profiles tile is white, over the track and the fill alike. */
+const PROFILES_TEXT = "#FFFFFF";
 
 /**
  * The profiles tile's fill: hue runs from green (120°) at 0% through yellow at 50%
@@ -131,17 +130,6 @@ export function usageColor(percent: number): string {
         return Math.round(v * 255).toString(16).padStart(2, "0").toUpperCase();
     };
     return `#${channel(0)}${channel(8)}${channel(4)}`;
-}
-
-/** Whichever of the dark or white text has the higher contrast on a fill. */
-export function textOnFill(hex: string): string {
-    const linear = (i: number) => {
-        const c = parseInt(hex.slice(i, i + 2), 16) / 255;
-        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-    };
-    const luminance = 0.2126 * linear(1) + 0.7152 * linear(3) + 0.0722 * linear(5);
-    // Contrast against white is 1.05 / (L + 0.05), against the dark text (L ≈ 0.008) it is (L + 0.05) / 0.058.
-    return (luminance + 0.05) / 0.058 > 1.05 / (luminance + 0.05) ? ON_LIGHT : ON_DARK;
 }
 
 export class ProgressBarRenderer {
@@ -355,13 +343,13 @@ export class ProgressBarRenderer {
             const colW = (width - 2 * g.pad - g.groupGap) / 2;
             const top = (height - groupH) / 2;
             shown.forEach((group, i) => {
-                body += this.profileGroup(group, i, colors, theme, g, g.pad + i * (colW + g.groupGap), top, colW);
+                body += this.profileGroup(group, colors, theme, g, g.pad + i * (colW + g.groupGap), top, colW);
             });
         } else {
             const blockH = shown.length * groupH + Math.max(0, shown.length - 1) * g.groupGap;
             const top = (height - blockH) / 2;
             shown.forEach((group, i) => {
-                body += this.profileGroup(group, i, colors, theme, g, g.pad, top + i * (groupH + g.groupGap), width - 2 * g.pad);
+                body += this.profileGroup(group, colors, theme, g, g.pad, top + i * (groupH + g.groupGap), width - 2 * g.pad);
             });
         }
         return this.svg(width, height, body);
@@ -542,7 +530,7 @@ export class ProgressBarRenderer {
 
         const barTop = top + geo.barY;
         const r = geo.barR;
-        const fw = pct > 0 ? Math.max(geo.barH, (geo.innerW * pct) / 100) : 0;
+        const fw = this.round((geo.innerW * pct) / 100);
         const cx = (geo.left + geo.right) / 2;
         const timeY = barTop + geo.barH / 2 + geo.timeSize * 0.35;
         const onFill = color === STATE_WARN ? "#1A1505" : "#FFFFFF";
@@ -555,14 +543,12 @@ export class ProgressBarRenderer {
         out += this.txt(startX, headRow, this.escape(percentText), headSize, weight, colors.text, "start", ProgressBarRenderer.SANS);
         out += this.txt(startX + percentW + headGap, headRow, label, headSize, weight, colors.label, "start", ProgressBarRenderer.SANS);
         out += `<rect x="${geo.left}" y="${barTop}" width="${this.round(geo.innerW)}" height="${geo.barH}" rx="${r}" fill="${colors.barBg}" />`;
-        if (fw > 0) {
-            out += `<rect x="${geo.left}" y="${barTop}" width="${this.round(fw)}" height="${geo.barH}" rx="${r}" fill="${color}" />`;
-        }
+        out += this.trackFill(geo.left, barTop, fw, geo.barH, this.round(geo.innerW), r, color);
         if (time) {
             out += this.txt(cx, timeY, time, geo.timeSize, 500, colors.label, "middle", ProgressBarRenderer.SANS);
             if (fw > 0) {
                 const clipId = `bar${this.round(barTop)}_${this.round(geo.left)}`;
-                out += `<defs><clipPath id="${clipId}"><rect x="${geo.left}" y="${barTop}" width="${this.round(fw)}" height="${geo.barH}" rx="${r}" /></clipPath></defs>`;
+                out += `<defs><clipPath id="${clipId}"><rect x="${geo.left}" y="${barTop}" width="${fw}" height="${geo.barH}" /></clipPath></defs>`;
                 out += `<g clip-path="url(#${clipId})">${this.txt(cx, timeY, time, geo.timeSize, 500, onFill, "middle", ProgressBarRenderer.SANS)}</g>`;
             }
         }
@@ -581,25 +567,25 @@ export class ProgressBarRenderer {
         return out;
     }
 
-    private profileGroup(group: ProfileGroup, index: number, colors: ThemeColors, theme: ServiceTheme, g: ProfilesGeometry, left: number, top: number, w: number): string {
+    private profileGroup(group: ProfileGroup, colors: ThemeColors, theme: ServiceTheme, g: ProfilesGeometry, left: number, top: number, w: number): string {
         const SANS = ProgressBarRenderer.SANS;
         // Without headers, an error is the one place the label is needed to say which
         // account failed. It takes the first bar row and the message the second.
         if (group.error) {
             const row = (i: number) => top + i * (g.bar + g.barGap) + g.bar / 2 + g.text * 0.35;
-            return this.txt(left, row(0), this.fitText(group.label.toUpperCase(), g.text, SANS, w, 700), g.text, 700, colors.label, "start", SANS)
-                + this.txt(left, row(1), this.fitText(group.error, g.text, SANS, w, 600), g.text, 600, colors.text, "start", SANS);
+            return this.txt(left, row(0), this.fitText(group.label.toUpperCase(), g.text, SANS, w, 700), g.text, 700, PROFILES_TEXT, "start", SANS)
+                + this.txt(left, row(1), this.fitText(group.error, g.text, SANS, w, 600), g.text, 600, PROFILES_TEXT, "start", SANS);
         }
 
         let out = "";
         for (let i = 0; i < 2; i++) {
             const bar = group.bars?.[i] ?? { empty: true };
-            out += this.profileBar(bar, `pf${index}_${i}`, colors, theme, g, left, top + i * (g.bar + g.barGap), w);
+            out += this.profileBar(bar, colors, theme, g, left, top + i * (g.bar + g.barGap), w);
         }
         return out;
     }
 
-    private profileBar(bar: ProfileBar, clipId: string, colors: ThemeColors, theme: ServiceTheme, g: ProfilesGeometry, left: number, top: number, w: number): string {
+    private profileBar(bar: ProfileBar, colors: ThemeColors, theme: ServiceTheme, g: ProfilesGeometry, left: number, top: number, w: number): string {
         const SANS = ProgressBarRenderer.SANS;
         const x = this.round(left);
         const y = this.round(top);
@@ -608,30 +594,20 @@ export class ProgressBarRenderer {
         let out = `<rect x="${x}" y="${y}" width="${width}" height="${g.bar}" rx="${g.barR}" fill="${colors.barBg}" />`;
 
         if (bar.empty) {
-            return out + this.txt(left + g.textPad, textY, "—", g.text, 600, colors.label, "start", SANS);
+            return out + this.txt(left + g.textPad, textY, "—", g.text, 600, PROFILES_TEXT, "start", SANS);
         }
 
         const pct = this.clampPct(bar.percent ?? 0);
         const color = usageColor(pct);
-        const fw = pct > 0 ? this.round(Math.max(g.bar, (w * pct) / 100)) : 0;
-        const onFill = textOnFill(color);
+        const fw = this.round((w * pct) / 100);
         const pctText = `${pct}%`;
         const captionMax = w - 2 * g.textPad - this.measure(pctText, g.text, SANS, 600) - 6;
         const caption = bar.caption ? this.fitText(bar.caption, g.text, SANS, captionMax, 500) : "";
 
-        // Drawn once over the track and once clipped to the fill, so the text keeps its
-        // contrast wherever the fill ends.
-        const texts = (pctFill: string, captionFill: string) =>
-            this.txt(left + g.textPad, textY, pctText, g.text, 600, pctFill, "start", SANS)
-            + (caption ? this.txt(left + w - g.textPad, textY, caption, g.text, 500, captionFill, "end", SANS) : "");
-
-        if (fw > 0) {
-            out += `<rect x="${x}" y="${y}" width="${fw}" height="${g.bar}" rx="${g.barR}" fill="${color}" />`;
-        }
-        out += texts(colors.text, colors.label);
-        if (fw > 0) {
-            out += `<defs><clipPath id="${clipId}"><rect x="${x}" y="${y}" width="${fw}" height="${g.bar}" rx="${g.barR}" /></clipPath></defs>`;
-            out += `<g clip-path="url(#${clipId})">${texts(onFill, onFill)}</g>`;
+        out += this.trackFill(x, y, fw, g.bar, width, g.barR, color);
+        out += this.txt(left + g.textPad, textY, pctText, g.text, 600, PROFILES_TEXT, "start", SANS);
+        if (caption) {
+            out += this.txt(left + w - g.textPad, textY, caption, g.text, 500, PROFILES_TEXT, "end", SANS);
         }
         return out;
     }
@@ -804,6 +780,18 @@ export class ProgressBarRenderer {
             return lines.slice(0, last).map((l) => this.escape(l)).concat(this.fitText(lines[last], size, family, maxWidth, weight));
         }
         return lines.map((l) => this.escape(l));
+    }
+
+    /**
+     * A fill exactly proportional to its width, however narrow. A rounded rect can't
+     * be narrower than its corners, so the fill is a plain rect clipped to the track's
+     * rounded shape instead: short fills keep the track's curve on the left.
+     */
+    private trackFill(x: number, y: number, fw: number, h: number, trackW: number, r: number, color: string): string {
+        if (fw <= 0) return "";
+        const clipId = `track${x}_${y}`.replace(/\./g, "-");
+        return `<defs><clipPath id="${clipId}"><rect x="${x}" y="${y}" width="${trackW}" height="${h}" rx="${r}" /></clipPath></defs>`
+            + `<rect x="${x}" y="${y}" width="${fw}" height="${h}" fill="${color}" clip-path="url(#${clipId})" />`;
     }
 
     private round(n: number): number {

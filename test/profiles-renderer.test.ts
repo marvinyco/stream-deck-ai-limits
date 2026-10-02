@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ProgressBarRenderer, textOnFill, usageColor } from "../src/ui/progress-bar-renderer.ts";
+import { ProgressBarRenderer, usageColor } from "../src/ui/progress-bar-renderer.ts";
 
 const renderer = new ProgressBarRenderer();
 const mockup = [
@@ -60,9 +60,14 @@ test("usageColor clamps out-of-range values", () => {
     assert.match(usageColor(37), /^#[0-9A-F]{6}$/);
 });
 
-test("textOnFill is dark on yellow and white on deep red", () => {
-    assert.equal(textOnFill(usageColor(50)), "#1A1505");
-    assert.equal(textOnFill(usageColor(100)), "#FFFFFF");
+test("every piece of profile text is white", () => {
+    const fills = (svg: string) => [...svg.matchAll(/<text [^>]*fill="([^"]+)"/g)].map((m) => m[1]);
+    const bars = renderer.renderProfiles(mockup, "claude", 144, 144);
+    const errors = renderer.renderProfiles([
+        { label: "Work", error: "Login Expired" },
+        { label: "Personal", bars: [{ empty: true }, { percent: 50 }] }
+    ], "claude", 144, 144);
+    for (const fill of [...fills(bars), ...fills(errors)]) assert.equal(fill, "#FFFFFF");
 });
 
 test("profile bars fill with the usage colour", () => {
@@ -71,13 +76,6 @@ test("profile bars fill with the usage colour", () => {
         assert.ok(svg.includes(`fill="${usageColor(pct)}"`), `missing fill for ${pct}%`);
     }
     assert.ok(!svg.includes('fill="#F2564F"'), "the old warning red is not used");
-});
-
-test("gives every clip path its own id", () => {
-    const svg = renderer.renderProfiles(mockup, "claude", 144, 144);
-    const ids = [...svg.matchAll(/<clipPath id="([^"]+)"/g)].map((m) => m[1]);
-    assert.equal(ids.length, 4);
-    assert.equal(new Set(ids).size, 4);
 });
 
 test("clamps percentages to 0-100 and keeps fills inside the track", () => {
@@ -113,7 +111,6 @@ test("an errored profile shows its message instead of bars", () => {
         assert.ok(svg.includes(`>${text}</text>`), `missing ${text}`);
     }
     assert.ok(!svg.includes("%</text>"));
-    assert.ok(!svg.includes("<clipPath"));
 });
 
 test("an empty bar shows a dash and no fill", () => {
@@ -122,7 +119,7 @@ test("an empty bar shows a dash and no fill", () => {
         { label: "Personal", bars: [{ empty: true }, { percent: 10 }] }
     ], "claude", 144, 144);
     assert.equal([...svg.matchAll(/>—<\/text>/g)].length, 3);
-    assert.equal([...svg.matchAll(/<clipPath/g)].length, 1);
+    assert.equal([...svg.matchAll(/%<\/text>/g)].length, 1);
 });
 
 test("draws the dial as two columns", () => {
@@ -134,5 +131,18 @@ test("draws the dial as two columns", () => {
     assert.ok(!svg.includes("WORK") && !svg.includes("PERSONAL"));
     for (const text of ["3h 33m", "16h 3m", "1h 12m", "4d 2h"]) {
         assert.ok(svg.includes(`>${text}</text>`), `dial truncated ${text}`);
+    }
+});
+
+test("fill width is exactly proportional to the percentage", () => {
+    const fillWidth = (pct: number) => {
+        const svg = renderer.renderProfiles([{ label: "A", bars: [{ percent: pct }] }], "claude", 144, 144);
+        const fill = svg.match(new RegExp(`<rect [^>]*width="([^"]+)"[^>]*fill="${usageColor(pct)}"`));
+        assert.ok(fill, `missing fill for ${pct}%`);
+        return Number(fill[1]);
+    };
+    const track = 144 - 2 * 8;
+    for (const pct of [2, 5, 16, 50, 100]) {
+        assert.ok(Math.abs(fillWidth(pct) - (track * pct) / 100) < 0.01, `${pct}% fill is ${fillWidth(pct)}`);
     }
 });
