@@ -83,20 +83,9 @@ test("usageColor clamps out-of-range values", () => {
     assert.match(usageColor(37), /^#[0-9A-F]{6}$/);
 });
 
-test("textOnFill is dark on green and yellow and white on red", () => {
-    assert.equal(textOnFill(usageColor(10)).fill, "#1A1505");
-    assert.equal(textOnFill(usageColor(50)).fill, "#1A1505");
-    assert.equal(textOnFill(usageColor(100)).fill, "#FFFFFF");
-});
-
-test("text near the limit is white, outlined where the fill is too light for it alone", () => {
-    for (let pct = 85; pct <= 100; pct++) {
-        const fill = usageColor(pct);
-        const text = textOnFill(fill);
-        assert.equal(text.fill, "#FFFFFF", `text on ${fill} at ${pct}% should be white`);
-        const contrast = 1.05 / (luminance(fill) + 0.05);
-        assert.ok(contrast >= 4.5 || text.halo, `white on ${fill} at ${pct}% has contrast ${contrast.toFixed(2)} and no outline`);
-    }
+test("textOnFill is dark on green and yellow and white on orange-red and red", () => {
+    for (const pct of [0, 10, 50, 60, 70]) assert.equal(textOnFill(usageColor(pct)), "#1A1505", `at ${pct}%`);
+    for (let pct = 80; pct <= 100; pct++) assert.equal(textOnFill(usageColor(pct)), "#FFFFFF", `at ${pct}%`);
 });
 
 test("the red end stays bright against the dark track", () => {
@@ -107,26 +96,16 @@ test("the red end stays bright against the dark track", () => {
     }
 });
 
-test("outlined text draws a stroked copy under only the characters over the fill", () => {
-    const svg = renderer.renderProfiles([{ label: "A", bars: [{ percent: 95, caption: "now" }] }], "claude", 144, 144);
-    const { halo } = textOnFill(usageColor(95));
-    assert.ok(halo);
-    const outlines = svg.match(new RegExp(`stroke="${halo}"`, "g")) ?? [];
-    assert.equal(outlines.length, 2, svg);
-    const under = svg.indexOf(`stroke="${halo}"`);
-    assert.ok(under < svg.indexOf('fill="#FFFFFF" text-anchor="start">95%</text>'), svg);
-});
-
 test("text is white over the track and contrasts with the fill where it overlaps", () => {
     const svg = renderer.renderProfiles([{ label: "A", bars: [{ percent: 50, caption: "3d 4h" }] }], "claude", 144, 144);
     // Over the fill: the percentage on the left. Over the track: the caption on the right.
-    assert.ok(svg.includes(`fill="${textOnFill(usageColor(50)).fill}" text-anchor="start">50%</text>`), svg);
+    assert.ok(svg.includes(`fill="${textOnFill(usageColor(50))}" text-anchor="start">50%</text>`), svg);
     assert.ok(svg.includes(`fill="#FFFFFF" text-anchor="end">3d 4h</text>`), svg);
 });
 
 test("text the fill edge runs through changes colour per character", () => {
     const svg = renderer.renderProfiles([{ label: "A", bars: [{ percent: 20 }] }], "claude", 144, 144);
-    const dark = textOnFill(usageColor(20)).fill;
+    const dark = textOnFill(usageColor(20));
     assert.match(svg, new RegExp(`<tspan fill="${dark}">[^<]+</tspan><tspan fill="#FFFFFF">[^<]+</tspan>`));
 });
 

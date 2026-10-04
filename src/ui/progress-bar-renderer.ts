@@ -134,22 +134,17 @@ export function usageColor(percent: number): string {
     return `#${channel(0)}${channel(8)}${channel(4)}`;
 }
 
-/** Outline drawn under white text on a fill that is too light for white alone. */
-const HALO = "#2A0A06";
-
 /**
- * Text on a fill: dark on light fills, white on the warm end. Dark text on orange and
- * red reads as muddy whatever its measured contrast, so from orange on the text is
- * white, outlined in HALO where the fill is too light for white by itself.
+ * Text on a fill: white once the fill turns orange-red, whichever of dark or white has
+ * the higher contrast before that. Dark text on the red end looks heavy, so white is
+ * kept there even though it measures lower.
  */
-export function textOnFill(hex: string): { fill: string; halo?: string } {
+export function textOnFill(hex: string): string {
     const [r, g] = [1, 3].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    if (r > g * 1.6) return PROFILES_TEXT;
     const luminance = relativeLuminance(hex);
-    const white = 1.05 / (luminance + 0.05);
-    if (r > g * 1.6 || white >= 4.5) {
-        return white >= 4.5 ? { fill: PROFILES_TEXT } : { fill: PROFILES_TEXT, halo: HALO };
-    }
-    return { fill: ON_LIGHT };
+    // Contrast against white is 1.05 / (L + 0.05), against the dark text (L ≈ 0.008) it is (L + 0.05) / 0.058.
+    return (luminance + 0.05) / 0.058 > 1.05 / (luminance + 0.05) ? ON_LIGHT : PROFILES_TEXT;
 }
 
 function relativeLuminance(hex: string): number {
@@ -632,9 +627,9 @@ export class ProgressBarRenderer {
         const edge = left + fw;
 
         out += this.trackFill(x, y, fw, g.bar, width, g.barR, color);
-        out += this.splitText(left + g.textPad, textY, pctText, g.text, 600, "start", edge, PROFILES_TEXT, onFill.fill, onFill.halo);
+        out += this.splitText(left + g.textPad, textY, pctText, g.text, 600, "start", edge, PROFILES_TEXT, onFill);
         if (caption) {
-            out += this.splitText(left + w - g.textPad, textY, caption, captionSize, 500, "end", edge, PROFILES_TEXT, onFill.fill, onFill.halo);
+            out += this.splitText(left + w - g.textPad, textY, caption, captionSize, 500, "end", edge, PROFILES_TEXT, onFill);
         }
         return out;
     }
@@ -851,10 +846,9 @@ export class ProgressBarRenderer {
     /**
      * Text that changes colour where the fill ends: each character takes the fill's
      * text colour when its centre sits over the fill, the base colour otherwise. The
-     * Stream Deck renderer ignores clipPath, so this is done with tspans instead. With
-     * a halo, the characters over the fill get an outline: a stroked copy drawn first.
+     * Stream Deck renderer ignores clipPath, so this is done with tspans instead.
      */
-    private splitText(x: number, y: number, text: string, size: number, weight: number, anchor: "start" | "middle" | "end", edgeX: number, base: string, onFill: string, halo?: string): string {
+    private splitText(x: number, y: number, text: string, size: number, weight: number, anchor: "start" | "middle" | "end", edgeX: number, base: string, onFill: string): string {
         const SANS = ProgressBarRenderer.SANS;
         const total = this.measure(text, size, SANS, weight);
         const startX = anchor === "start" ? x : anchor === "end" ? x - total : x - total / 2;
@@ -870,21 +864,11 @@ export class ProgressBarRenderer {
         }
         const fillOf = (over: boolean) => (over ? onFill : base);
 
-        let under = "";
-        if (halo && runs.some((run) => run.over)) {
-            const stroke = `stroke="${halo}" stroke-width="${this.round(size * 0.2)}" stroke-linejoin="round"`;
-            under = runs.length === 1
-                ? `<text x="${this.round(x)}" y="${this.round(y)}" font-family="${SANS}" font-size="${size}" font-weight="${weight}" fill="${halo}" ${stroke} text-anchor="${anchor}">${this.escape(text)}</text>`
-                : this.txt(x, y, runs.map((run) => run.over
-                    ? `<tspan fill="${halo}" ${stroke}>${this.escape(run.text)}</tspan>`
-                    : `<tspan fill="none">${this.escape(run.text)}</tspan>`).join(""), size, weight, "none", anchor, SANS);
-        }
-
         if (runs.length <= 1 || onFill === base) {
-            return under + this.txt(x, y, this.escape(text), size, weight, fillOf(runs[0]?.over ?? false), anchor, SANS);
+            return this.txt(x, y, this.escape(text), size, weight, fillOf(runs[0]?.over ?? false), anchor, SANS);
         }
         const content = runs.map((run) => `<tspan fill="${fillOf(run.over)}">${this.escape(run.text)}</tspan>`).join("");
-        return under + this.txt(x, y, content, size, weight, base, anchor, SANS);
+        return this.txt(x, y, content, size, weight, base, anchor, SANS);
     }
 
     private round(n: number): number {
